@@ -1,0 +1,146 @@
+import time
+import random
+import psutil
+import os
+from typing import List, Dict, Set
+from dataclasses import dataclass
+from collections import defaultdict
+
+@dataclass
+class Processo:
+    id: int
+    categoria: int
+    peso: float
+    tempo_estimado: float
+
+@dataclass
+class Funcionario:
+    id: int
+    especialidades: Set[int]
+    carga_horaria: float
+    carga_atual: float = 0.0
+    processos_atribuidos: List[Processo] = None
+
+    def __post_init__(self):
+        if self.processos_atribuidos is None:
+            self.processos_atribuidos = []
+
+class DistribuidorProcessos:
+    def __init__(self):
+        self.funcionarios: List[Funcionario] = []
+        self.processos: List[Processo] = []
+        self.tempo_inicio = 0
+        self.memoria_inicial = 0
+
+    def adicionar_funcionario(self, funcionario: Funcionario):
+        self.funcionarios.append(funcionario)
+
+    def adicionar_processo(self, processo: Processo):
+        self.processos.append(processo)
+
+    def iniciar_metricas(self):
+        self.tempo_inicio = time.time()
+        processo = psutil.Process(os.getpid())
+        self.memoria_inicial = processo.memory_info().rss
+
+    def finalizar_metricas(self):
+        tempo_total = time.time() - self.tempo_inicio
+        processo = psutil.Process(os.getpid())
+        memoria_final = processo.memory_info().rss
+        memoria_usada = memoria_final - self.memoria_inicial
+        return tempo_total, memoria_usada
+
+    def distribuir_processos(self) -> Dict[int, List[Processo]]:
+        self.iniciar_metricas()
+        
+        # Ordena processos por peso (maior para menor)
+        self.processos.sort(key=lambda p: p.peso, reverse=True)
+        
+        # Ordena funcionários por carga atual (menor para maior)
+        self.funcionarios.sort(key=lambda f: f.carga_atual)
+        
+        distribuicao = defaultdict(list)
+        
+        for processo in self.processos:
+            funcionarios_compativeis = [
+                f for f in self.funcionarios 
+                if processo.categoria in f.especialidades
+            ]
+            
+            if not funcionarios_compativeis:
+                continue
+                
+            # Encontra o funcionário com menor carga atual
+            funcionario_escolhido = min(
+                funcionarios_compativeis,
+                key=lambda f: f.carga_atual
+            )
+            
+            # Verifica se o funcionário tem capacidade
+            if (funcionario_escolhido.carga_atual + processo.peso <= 
+                funcionario_escolhido.carga_horaria):
+                
+                funcionario_escolhido.processos_atribuidos.append(processo)
+                funcionario_escolhido.carga_atual += processo.peso
+                distribuicao[funcionario_escolhido.id].append(processo)
+                
+                # Reordena funcionários após atribuição
+                self.funcionarios.sort(key=lambda f: f.carga_atual)
+        
+        tempo, memoria = self.finalizar_metricas()
+        print(f"\nMétricas de Execução:")
+        print(f"Tempo de execução: {tempo:.4f} segundos")
+        print(f"Memória utilizada: {memoria / 1024 / 1024:.2f} MB")
+        
+        return dict(distribuicao)
+
+def gerar_dados_teste():
+    # Gerar funcionários
+    funcionarios = [
+        Funcionario(1, {1, 2}, 40.0),
+        Funcionario(2, {2, 3}, 40.0),
+        Funcionario(3, {3, 4}, 40.0),
+        Funcionario(4, {4, 5}, 40.0),
+        Funcionario(5, {1, 5}, 40.0)
+    ]
+    
+    # Gerar processos
+    processos = []
+    for i in range(50):
+        categoria = random.randint(1, 5)
+        peso = random.uniform(1.0, 10.0)
+        tempo = random.uniform(0.5, 5.0)
+        processos.append(Processo(i, categoria, peso, tempo))
+    
+    return funcionarios, processos
+
+def main():
+    # Criar instância do distribuidor
+    distribuidor = DistribuidorProcessos()
+    
+    # Gerar dados de teste
+    funcionarios, processos = gerar_dados_teste()
+    
+    # Adicionar funcionários e processos
+    for funcionario in funcionarios:
+        distribuidor.adicionar_funcionario(funcionario)
+    
+    for processo in processos:
+        distribuidor.adicionar_processo(processo)
+    
+    # Realizar distribuição
+    distribuicao = distribuidor.distribuir_processos()
+    
+    # Imprimir resultados
+    print("\nDistribuição de Processos:")
+    for funcionario_id, processos in distribuicao.items():
+        print(f"\nFuncionário {funcionario_id}:")
+        print(f"Total de processos: {len(processos)}")
+        print(f"Carga total: {sum(p.peso for p in processos):.2f}")
+        print("Processos:")
+        for processo in processos:
+            print(f"  - Processo {processo.id}: Categoria {processo.categoria}, "
+                  f"Peso {processo.peso:.2f}")
+
+if __name__ == "__main__":
+    main()
